@@ -35,7 +35,6 @@ model = Ridge(alpha=0.5, fit_intercept=True)
 model.fit(X_train, y_train)
 
 pred = model.predict(X_test)
-g
 mse_exp01_fs = mean_squared_error(y_test, pred)
 r2_exp01_fs = r2_score(y_test, pred)
 
