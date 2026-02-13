@@ -2,144 +2,118 @@ pipeline {
     agent any
 
     environment {
-        VENV = "venv"
+        DOCKER_IMAGE = "mdjaasir2022bcs0010/lab6"
         METRICS_FILE = "app/artifacts/metrics.json"
-        DOCKER_IMAGE = "mdjaasir2022bcs0010/wine_predict_2022bcs0010"
-        MODEL_IMPROVED = "false"
     }
 
     stages {
 
-        // -----------------------------
-        // Stage 1: Checkout
-        // -----------------------------
         stage('Checkout') {
             steps {
                 checkout scm
             }
         }
 
-        // -----------------------------
-        // Stage 2: Setup Python Virtual Environment
-        // -----------------------------
         stage('Setup Python Virtual Environment') {
             steps {
                 sh '''
-                    python3 -m venv $VENV
-                    . $VENV/bin/activate
+                    python3 -m venv venv
+                    . venv/bin/activate
                     pip install --upgrade pip
                     pip install -r requirements.txt
                 '''
             }
         }
 
-        // -----------------------------
-        // Stage 3: Train Model
-        // -----------------------------
         stage('Train Model') {
             steps {
                 sh '''
-                    . $VENV/bin/activate
-                    mkdir -p app/artifacts
+                    . venv/bin/activate
                     python train.py
                 '''
             }
         }
 
-        // -----------------------------
-        // Stage 4: Read Metrics (MSE & R2)
-        // -----------------------------
-        stage('Read Metrics') {
+        stage('Read Accuracy') {
             steps {
                 script {
                     def metrics = readJSON file: "${METRICS_FILE}"
 
-                    env.CURRENT_MSE = metrics.mse.toString()
-                    env.CURRENT_R2  = metrics.r2.toString()
+                    env.CURRENT_MSE = metrics.MSE.toString()
+                    env.CURRENT_R2  = metrics.R2.toString()
 
                     echo "Current MSE: ${env.CURRENT_MSE}"
-                    echo "Current R2: ${env.CURRENT_R2}"
+                    echo "Current R2 : ${env.CURRENT_R2}"
                 }
             }
         }
 
-        // -----------------------------
-        // Stage 5: Compare Model Performance
-        // -----------------------------
-        stage('Compare Model Performance') {
+   
+        stage('Compare Accuracy') {
             steps {
                 script {
-                    withCredentials([string(credentialsId: 'best-accuracy', variable: 'BASELINE')]) {
+                    withCredentials([
+                        string(credentialsId: 'BEST_MSE', variable: 'BEST_MSE'),
+                        string(credentialsId: 'BEST_R2', variable: 'BEST_R2')
+                    ]) {
 
-                        def parts = BASELINE.split(',')
+                        def current_mse = env.CURRENT_MSE.toFloat()
+                        def current_r2  = env.CURRENT_R2.toFloat()
 
-                        def BEST_MSE = parts[0].toFloat()
-                        def BEST_R2  = parts[1].toFloat()
+                        def best_mse = BEST_MSE.toFloat()
+                        def best_r2  = BEST_R2.toFloat()
 
-                        echo "Best Stored MSE: ${BEST_MSE}"
-                        echo "Best Stored R2: ${BEST_R2}"
+                        echo "Best MSE: ${best_mse}"
+                        echo "Best R2 : ${best_r2}"
 
-                        // Model improves if:
-                        // R2 increases AND MSE decreases
-
-                        if (env.CURRENT_R2.toFloat() > BEST_R2 &&
-                            env.CURRENT_MSE.toFloat() < BEST_MSE) {
-
+                        if (current_mse < best_mse && current_r2 > best_r2) {
                             env.MODEL_IMPROVED = "true"
-                            echo "Model improved!"
+                            echo "Model Improved "
                         } else {
                             env.MODEL_IMPROVED = "false"
-                            echo "Model did NOT improve."
+                            echo "Model Did Not Improve "
                         }
                     }
                 }
             }
         }
 
-        // -----------------------------
-        // Stage 6: Build Docker Image (Conditional)
-        // -----------------------------
+        
         stage('Build Docker Image') {
             when {
                 expression { env.MODEL_IMPROVED == "true" }
             }
             steps {
-                script {
-                    docker.build("${DOCKER_IMAGE}:${env.BUILD_NUMBER}")
-                }
+                sh '''
+                    docker build -t ${DOCKER_IMAGE}:${BUILD_NUMBER} .
+                '''
             }
         }
 
-        // -----------------------------
-        // Stage 7: Push Docker Image (Conditional)
-        // -----------------------------
+     
         stage('Push Docker Image') {
             when {
                 expression { env.MODEL_IMPROVED == "true" }
             }
             steps {
-                script {
-                    withCredentials([usernamePassword(
-                        credentialsId: 'docker-access',
-                        usernameVariable: 'DOCKER_USER',
-                        passwordVariable: 'DOCKER_PASS'
-                    )]) {
+                withCredentials([usernamePassword(
+                    credentialsId: 'docker-access',
+                    usernameVariable: 'DOCKER_USER',
+                    passwordVariable: 'DOCKER_PASS'
+                )]) {
 
-                        sh '''
-                            echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin
-                            docker tag ${DOCKER_IMAGE}:${BUILD_NUMBER} ${DOCKER_IMAGE}:latest
-                            docker push ${DOCKER_IMAGE}:${BUILD_NUMBER}
-                            docker push ${DOCKER_IMAGE}:latest
-                        '''
-                    }
+                    sh '''
+                        echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin
+                        docker tag ${DOCKER_IMAGE}:${BUILD_NUMBER} ${DOCKER_IMAGE}:latest
+                        docker push ${DOCKER_IMAGE}:${BUILD_NUMBER}
+                        docker push ${DOCKER_IMAGE}:latest
+                    '''
                 }
             }
         }
     }
 
-    // -----------------------------
-    // Always archive artifacts
-    // -----------------------------
+   
     post {
         always {
             archiveArtifacts artifacts: 'app/artifacts/**', fingerprint: true
