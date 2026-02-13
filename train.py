@@ -12,7 +12,8 @@ print("Name: Mohamed Jaasir Subair")
 print("Roll no: 2022BCS0010")
 
 os.makedirs("output/model", exist_ok=True)
-os.makedirs("output/results", exist_ok=True)
+os.makedirs("app/artifacts", exist_ok=True)
+
 
 df = pd.read_csv("dataset/winequality-red.csv", sep=";")
 
@@ -47,5 +48,5 @@ metrics = {
     "R2": r2_exp01
 }
 
-with open("output/results/metrics.json", "w") as f:
+with open("app/artifacts/metrics.json", "w") as f:
     json.dump(metrics, f, indent=4)
